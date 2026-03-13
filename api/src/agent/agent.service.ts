@@ -55,40 +55,51 @@ export class AgentService {
             name: 'search_external_images',
             description: 'Search for new images on Google matching user mood. Input: specific search keywords.',
             func: async (query: string) => {
-                const googleApiKey = this.configService.get<string>('GOOGLE_API_KEY');
-                const googleCseId = this.configService.get<string>('GOOGLE_CSE_ID');
+                const serpApiKey = this.configService.get<string>('SERPAPI_API_KEY');
 
-                console.log('--- Google Search Tool Debug ---');
+                console.log('--- SerpApi Search Tool Debug ---');
                 console.log('Query:', query);
-                console.log('GOOGLE_API_KEY Config:', googleApiKey ? 'LOADED' : 'MISSING');
-                console.log('GOOGLE_CSE_ID Config:', googleCseId ? 'LOADED' : 'MISSING');
+                console.log('SERPAPI_API_KEY Config:', serpApiKey ? `LOADED` : 'MISSING');
 
-                if (!googleApiKey || !googleCseId || googleApiKey.includes('your_')) {
+                if (!serpApiKey || serpApiKey.includes('your_')) {
                     // Fallback to Mock if no API Keys
-                    const isWoman = query.includes('woman') || query.includes('여성') || query.includes('person');
+                    const isWoman = query.includes('woman') || query.includes('여성') || query.includes('person') || query.includes('카리나') || query.includes('연예인');
                     if (isWoman) {
                         return JSON.stringify([
                             { title: `Mock Result: ${query}`, category: 'external', url: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=600&q=80' },
                             { title: `Mock Result: High Fashion`, category: 'external', url: 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?w=600&q=80' }
                         ]);
                     }
-                    return 'Please configure GOOGLE_API_KEY and GOOGLE_CSE_ID for real search.';
+                    return 'Please configure SERPAPI_API_KEY for real search.';
                 }
 
                 try {
-                    const url = `https://www.googleapis.com/customsearch/v1?key=${googleApiKey}&cx=${googleCseId}&q=${encodeURIComponent(query)}&searchType=image&num=5`;
+                    const url = `https://serpapi.com/search.json?engine=google_images&q=${encodeURIComponent(query)}&api_key=${serpApiKey}`;
                     const response = await fetch(url);
                     const data: any = await response.json();
 
-                    if (!data.items) return 'No images found on Google.';
+                    console.log('SerpApi Response Status:', response.status);
+                    if (data.error) {
+                        console.error('SerpApi Error:', data.error);
+                        return `SerpApi Error: ${data.error}`;
+                    }
 
-                    return JSON.stringify(data.items.map((item: any) => ({
+                    const images = data.images_results || [];
+                    console.log('Number of items found:', images.length);
+
+                    if (images.length === 0) return 'No images found on Google via SerpApi.';
+
+                    // Take up to 5 images
+                    const topImages = images.slice(0, 5);
+
+                    return JSON.stringify(topImages.map((item: any) => ({
                         title: item.title,
                         category: 'external',
-                        url: item.link
+                        url: item.original || item.link // Using the high res original link
                     })));
                 } catch (e) {
-                    return 'Failed to search Google images.';
+                    console.error('Fetch Error:', e);
+                    return 'Failed to search Google images via SerpApi.';
                 }
             },
         });
@@ -98,19 +109,19 @@ export class AgentService {
         const prompt = ChatPromptTemplate.fromMessages([
             ['system', `You are an AI visual assistant. 
             CORE LOGIC:
-            1. Use 'search_past_preferences' to understand the user's specific taste, mood, and style from their history.
-            2. ALWAYS use 'search_external_images' to find NEW images that match both the user's current request and their discovered taste.
-            3. CRITICAL: In the final "images" array, ONLY include the new images found via 'search_external_images'. 
-            4. DO NOT include past preference images in the gallery (images array). Use them only to guide your search and your conversational reply.
+            1. Use 'search_past_preferences' to understand the user's specific taste.
+            2. Use 'search_external_images' to find NEW images matching the user request and taste.
+            3. CRITICAL: Your ENTIRE response MUST be a single valid JSON object. DO NOT include any text before or after the JSON.
+            4. DO NOT use markdown links in the 'reply' or anywhere else. Use the 'images' array for all images.
             
-            RESPONSE FORMAT:
+            STRICT JSON FORMAT:
             {{
-              "reply": "Conversational response (mentioning you've considered their past style)",
+              "reply": "Conversational response explaining what you found and how it fits their taste (NO MARKDOWN LINKS)",
               "images": [
                 {{
-                  "title": "New Image Title",
+                  "title": "Short Descriptive Title",
                   "category": "external",
-                  "url": "full url from search_external_images"
+                  "url": "full url from search_external_images result"
                 }}
               ]
             }}`],
@@ -127,11 +138,17 @@ export class AgentService {
         let parsedResult = { reply: response.output, images: [] };
 
         try {
+            let cleanOutput = response.output.trim();
+            // Remove markdown code blocks if present
+            if (cleanOutput.startsWith('```')) {
+                cleanOutput = cleanOutput.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+            }
+
             // Find the first { and last } to extract JSON if there's surrounding text
-            const firstBrace = response.output.indexOf('{');
-            const lastBrace = response.output.lastIndexOf('}');
+            const firstBrace = cleanOutput.indexOf('{');
+            const lastBrace = cleanOutput.lastIndexOf('}');
             if (firstBrace !== -1 && lastBrace !== -1) {
-                const jsonStr = response.output.substring(firstBrace, lastBrace + 1);
+                const jsonStr = cleanOutput.substring(firstBrace, lastBrace + 1);
                 const rawJson = JSON.parse(jsonStr);
                 parsedResult.reply = rawJson.reply || parsedResult.reply;
                 parsedResult.images = rawJson.images || [];

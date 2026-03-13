@@ -25,8 +25,7 @@ services:
       - DB_PASSWORD=nestpassword
       - DB_NAME=seeker_db
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
-      - GOOGLE_CSE_ID=${GOOGLE_CSE_ID}
+      - SERPAPI_API_KEY=${SERPAPI_API_KEY}
     ports:
       - "3000:3000"
     volumes:
