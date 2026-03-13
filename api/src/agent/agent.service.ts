@@ -111,6 +111,7 @@ export class AgentService {
             2. Use 'search_external_images' to find NEW images matching the user request and taste.
             3. CRITICAL: Your ENTIRE response MUST be a single valid JSON object. DO NOT include any text before or after the JSON.
             4. DO NOT use markdown links in the 'reply' or anywhere else. Use the 'images' array for all images.
+            5. LANGUAGE: Respond in the SAME language the user used. If the user asks in Korean, reply in Korean.
             
             STRICT JSON FORMAT:
             {{
