@@ -18,6 +18,7 @@ export class AgentService {
 
     async runAgent(userMessage: string) {
         const apiKey = this.configService.get<string>('OPENAI_API_KEY');
+        const baseUrl = 'http://localhost:3000'; // 외부 환경이면 환경변수 처리 필요
         const llm = new ChatOpenAI({ openAIApiKey: apiKey, modelName: 'gpt-4o', temperature: 0.2 });
         const embeddings = new OpenAIEmbeddings({ openAIApiKey: apiKey, modelName: 'text-embedding-3-small' });
 
@@ -41,7 +42,7 @@ export class AgentService {
                         id: r.id,
                         category: r.category,
                         description: r.metadata?.description,
-                        imageUrl: r.imageUrl
+                        imageUrl: r.imageUrl.startsWith('http') ? r.imageUrl : `${baseUrl}${r.imageUrl}`
                     })));
                 } catch (e) {
                     return 'Failed to search past preferences.';
@@ -49,23 +50,70 @@ export class AgentService {
             },
         });
 
-        // 2. 외부 API 이미지 검색 툴 (Mock)
+        // 2. 외부 API 이미지 검색 툴 (Google Custom Search 연동)
         const externalSearchTool = new DynamicTool({
             name: 'search_external_images',
-            description: 'Search for new images on the internet based on user mood/category. Use this to find new images that match the user preference. Input should be a descriptive search query.',
+            description: 'Search for new images on Google matching user mood. Input: specific search keywords.',
             func: async (query: string) => {
-                // Mocking an external API call like Unsplash
-                return JSON.stringify([
-                    { title: `External Result 1 for ${query}`, category: 'external', url: 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=500&q=80' },
-                    { title: `External Result 2 for ${query}`, category: 'external', url: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=500&q=80' }
-                ]);
+                const googleApiKey = this.configService.get<string>('GOOGLE_API_KEY');
+                const googleCseId = this.configService.get<string>('GOOGLE_CSE_ID');
+
+                console.log('--- Google Search Tool Debug ---');
+                console.log('Query:', query);
+                console.log('GOOGLE_API_KEY Config:', googleApiKey ? 'LOADED' : 'MISSING');
+                console.log('GOOGLE_CSE_ID Config:', googleCseId ? 'LOADED' : 'MISSING');
+
+                if (!googleApiKey || !googleCseId || googleApiKey.includes('your_')) {
+                    // Fallback to Mock if no API Keys
+                    const isWoman = query.includes('woman') || query.includes('여성') || query.includes('person');
+                    if (isWoman) {
+                        return JSON.stringify([
+                            { title: `Mock Result: ${query}`, category: 'external', url: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=600&q=80' },
+                            { title: `Mock Result: High Fashion`, category: 'external', url: 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?w=600&q=80' }
+                        ]);
+                    }
+                    return 'Please configure GOOGLE_API_KEY and GOOGLE_CSE_ID for real search.';
+                }
+
+                try {
+                    const url = `https://www.googleapis.com/customsearch/v1?key=${googleApiKey}&cx=${googleCseId}&q=${encodeURIComponent(query)}&searchType=image&num=5`;
+                    const response = await fetch(url);
+                    const data: any = await response.json();
+
+                    if (!data.items) return 'No images found on Google.';
+
+                    return JSON.stringify(data.items.map((item: any) => ({
+                        title: item.title,
+                        category: 'external',
+                        url: item.link
+                    })));
+                } catch (e) {
+                    return 'Failed to search Google images.';
+                }
             },
         });
 
         const tools = [memoryRetrieverTool, externalSearchTool];
 
         const prompt = ChatPromptTemplate.fromMessages([
-            ['system', 'You are an AI visual assistant. When a user asks for images, you MUST use the tools available. First search their past preferences using `search_past_preferences` to understand their exact mood and style. Then, if needed or requested, use `search_external_images` to find matching new images. Finally, combine the findings and answer the user. Please return a JSON format response inside your thought process or at the end so the app can render images. Format: { "reply": "...", "images": [{ "title": "...", "category": "...", "url": "..." }] }'],
+            ['system', `You are an AI visual assistant. 
+            CORE LOGIC:
+            1. Use 'search_past_preferences' to understand the user's specific taste, mood, and style from their history.
+            2. ALWAYS use 'search_external_images' to find NEW images that match both the user's current request and their discovered taste.
+            3. CRITICAL: In the final "images" array, ONLY include the new images found via 'search_external_images'. 
+            4. DO NOT include past preference images in the gallery (images array). Use them only to guide your search and your conversational reply.
+            
+            RESPONSE FORMAT:
+            {{
+              "reply": "Conversational response (mentioning you've considered their past style)",
+              "images": [
+                {{
+                  "title": "New Image Title",
+                  "category": "external",
+                  "url": "full url from search_external_images"
+                }}
+              ]
+            }}`],
             ['user', '{input}'],
             new MessagesPlaceholder('agent_scratchpad'),
         ]);
@@ -75,16 +123,21 @@ export class AgentService {
 
         const response = await agentExecutor.invoke({ input: userMessage });
 
-        // 최종 결과 출력 파싱 (안정성을 위해 JSON 추출)
-        const jsonMatch = response.output.match(/\{[\s\S]*\}/);
+        // 최종 결과 출력 파싱
         let parsedResult = { reply: response.output, images: [] };
 
-        if (jsonMatch) {
-            try {
-                parsedResult = JSON.parse(jsonMatch[0]);
-            } catch (e) {
-                // bypass
+        try {
+            // Find the first { and last } to extract JSON if there's surrounding text
+            const firstBrace = response.output.indexOf('{');
+            const lastBrace = response.output.lastIndexOf('}');
+            if (firstBrace !== -1 && lastBrace !== -1) {
+                const jsonStr = response.output.substring(firstBrace, lastBrace + 1);
+                const rawJson = JSON.parse(jsonStr);
+                parsedResult.reply = rawJson.reply || parsedResult.reply;
+                parsedResult.images = rawJson.images || [];
             }
+        } catch (e) {
+            console.error("JSON Parse Error:", e, "Raw output:", response.output);
         }
 
         return parsedResult;
