@@ -1,13 +1,11 @@
 import { useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Chat } from './components/Chat';
-import { Gallery } from './components/Gallery';
 import type { Message, ImageResult } from './types';
 import { Toaster } from 'sonner';
 
 function App() {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [images, setImages] = useState<ImageResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSendMessage = async (content: string) => {
@@ -25,21 +23,22 @@ function App() {
 
       const { data } = await response.json();
 
+      let agentImages: ImageResult[] = [];
+      if (data.images && data.images.length > 0) {
+        agentImages = data.images.map((img: any, i: number) => ({
+          ...img,
+          id: `img-${Date.now()}-${i}`
+        }));
+      }
+
       const newAgentMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: 'agent',
-        content: data.reply || "결과를 가져왔습니다."
+        content: data.reply || "결과를 가져왔습니다.",
+        images: agentImages
       };
       setMessages((prev) => [...prev, newAgentMsg]);
 
-      if (data.images && data.images.length > 0) {
-        setImages(data.images.map((img: any, i: number) => ({
-          ...img,
-          id: `img-${Date.now()}-${i}`
-        })));
-      } else {
-        setImages([]);
-      }
     } catch (error) {
       console.error(error);
       const errorMsg: Message = {
@@ -56,9 +55,8 @@ function App() {
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background">
       <Sidebar />
-      <div className="flex-1 flex flex-col h-full overflow-hidden">
+      <div className="flex-1 flex flex-col h-full overflow-hidden relative">
         <Chat messages={messages} onSendMessage={handleSendMessage} isLoading={isLoading} />
-        <Gallery images={images} />
       </div>
       <Toaster position="top-right" richColors />
     </div>

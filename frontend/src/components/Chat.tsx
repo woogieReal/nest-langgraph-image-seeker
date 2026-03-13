@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Send, Bot, User } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { ScrollArea } from "./ui/scroll-area";
+import { Gallery } from "./Gallery";
 import type { Message } from "../types";
 
 interface ChatProps {
@@ -13,6 +14,15 @@ interface ChatProps {
 
 export function Chat({ messages, onSendMessage, isLoading }: ChatProps) {
     const [input, setInput] = useState("");
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    };
+
+    useEffect(() => {
+        scrollToBottom();
+    }, [messages, isLoading]);
 
     const handleSend = () => {
         if (!input.trim() || isLoading) return;
@@ -21,12 +31,12 @@ export function Chat({ messages, onSendMessage, isLoading }: ChatProps) {
     };
 
     return (
-        <div className="flex flex-col h-1/2 border-b bg-muted/5 relative overflow-hidden">
+        <div className="flex flex-col flex-1 h-full bg-muted/5 relative overflow-hidden">
             {/* Background Accent */}
             <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -mr-32 -mt-32 pointer-events-none" />
 
             <ScrollArea className="flex-1 p-6 relative">
-                <div className="flex flex-col gap-6 max-w-3xl mx-auto">
+                <div className="flex flex-col gap-8 max-w-4xl mx-auto pb-10">
                     {messages.length === 0 && (
                         <div className="text-center text-muted-foreground mt-16 animate-in fade-in slide-in-from-bottom-4 duration-700">
                             <div className="bg-primary/10 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-sm">
@@ -40,16 +50,26 @@ export function Chat({ messages, onSendMessage, isLoading }: ChatProps) {
                         </div>
                     )}
                     {messages.map((m) => (
-                        <div key={m.id} className={`flex gap-4 ${m.role === 'user' ? 'flex-row-reverse' : ''} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
-                            <div className={`flex items-center justify-center w-9 h-9 rounded-2xl shadow-sm shrink-0 ${m.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-white dark:bg-zinc-800 border'}`}>
-                                {m.role === 'user' ? <User className="w-5 h-5" /> : <Bot className="w-5 h-5" />}
-                            </div>
-                            <div className={`rounded-2xl p-4 text-sm leading-relaxed shadow-sm max-w-[85%] ${m.role === 'user'
+                        <div key={m.id} className={`flex flex-col gap-4 ${m.role === 'user' ? 'items-end' : 'items-start'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
+                            <div className={`flex gap-4 ${m.role === 'user' ? 'flex-row-reverse' : ''} max-w-[85%]`}>
+                                <div className={`flex items-center justify-center w-9 h-9 rounded-2xl shadow-sm shrink-0 ${m.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-white dark:bg-zinc-800 border'}`}>
+                                    {m.role === 'user' ? <User className="w-5 h-5" /> : <Bot className="w-5 h-5" />}
+                                </div>
+                                <div className={`rounded-2xl p-4 text-sm leading-relaxed shadow-sm ${m.role === 'user'
                                     ? 'bg-primary text-primary-foreground font-medium'
                                     : 'bg-white dark:bg-zinc-900 border text-foreground'
-                                }`}>
-                                {m.content}
+                                    }`}>
+                                    {m.content}
+                                </div>
                             </div>
+
+                            {m.images && m.images.length > 0 && (
+                                <div className="w-full mt-2 pl-12">
+                                    <div className="bg-white/50 dark:bg-zinc-900/50 rounded-2xl border p-2 backdrop-blur-sm">
+                                        <Gallery images={m.images} />
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     ))}
                     {isLoading && (
@@ -66,13 +86,14 @@ export function Chat({ messages, onSendMessage, isLoading }: ChatProps) {
                             </div>
                         </div>
                     )}
+                    <div ref={messagesEndRef} />
                 </div>
             </ScrollArea>
 
             <div className="p-6 bg-background/80 backdrop-blur-md border-t relative z-10">
                 <form
                     onSubmit={(e) => { e.preventDefault(); handleSend(); }}
-                    className="flex gap-3 max-w-3xl mx-auto"
+                    className="flex gap-3 max-w-4xl mx-auto"
                 >
                     <div className="relative flex-1 group">
                         <Input
