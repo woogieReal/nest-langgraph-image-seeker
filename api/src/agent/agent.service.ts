@@ -50,26 +50,30 @@ export class AgentService {
             },
         });
 
-        // 2. 외부 API 이미지 검색 툴 (Google Custom Search 연동)
+        const IS_DEV_MODE = true; // 개발 중에는 true로 설정하여 API 사용량 차감 방지
+
         const externalSearchTool = new DynamicTool({
             name: 'search_external_images',
             description: 'Search for new images on Google matching user mood. Input: specific search keywords.',
             func: async (query: string) => {
+                if (IS_DEV_MODE) {
+                    console.log('--- MOCKED SerpApi Search Tool (Development Mode) ---');
+                    console.log('Query:', query);
+                    return JSON.stringify([
+                        { title: `${query} 1`, category: 'external', url: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=800&q=80' },
+                        { title: `${query} 2`, category: 'external', url: 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?w=800&q=80' },
+                        { title: `${query} 3`, category: 'external', url: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=800&q=80' },
+                        { title: `${query} 4`, category: 'external', url: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=800&q=80' },
+                        { title: `${query} 5`, category: 'external', url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800&q=80' }
+                    ]);
+                }
+
                 const serpApiKey = this.configService.get<string>('SERPAPI_API_KEY');
 
-                console.log('--- SerpApi Search Tool Debug ---');
+                console.log('--- SerpApi Search Tool (Production Mode) ---');
                 console.log('Query:', query);
-                console.log('SERPAPI_API_KEY Config:', serpApiKey ? `LOADED` : 'MISSING');
 
                 if (!serpApiKey || serpApiKey.includes('your_')) {
-                    // Fallback to Mock if no API Keys
-                    const isWoman = query.includes('woman') || query.includes('여성') || query.includes('person') || query.includes('카리나') || query.includes('연예인');
-                    if (isWoman) {
-                        return JSON.stringify([
-                            { title: `Mock Result: ${query}`, category: 'external', url: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=600&q=80' },
-                            { title: `Mock Result: High Fashion`, category: 'external', url: 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?w=600&q=80' }
-                        ]);
-                    }
                     return 'Please configure SERPAPI_API_KEY for real search.';
                 }
 
@@ -78,18 +82,12 @@ export class AgentService {
                     const response = await fetch(url);
                     const data: any = await response.json();
 
-                    console.log('SerpApi Response Status:', response.status);
                     if (data.error) {
                         console.error('SerpApi Error:', data.error);
                         return `SerpApi Error: ${data.error}`;
                     }
 
                     const images = data.images_results || [];
-                    console.log('Number of items found:', images.length);
-
-                    if (images.length === 0) return 'No images found on Google via SerpApi.';
-
-                    // Take up to 5 images
                     const topImages = images.slice(0, 5);
 
                     return JSON.stringify(topImages.map((item: any) => ({
