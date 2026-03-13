@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: seeker_db
+    environment:
+      POSTGRES_USER: nestuser
+      POSTGRES_PASSWORD: nestpassword
+      POSTGRES_DB: seeker_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: seeker_api
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=nestuser
+      - DB_PASSWORD=nestpassword
+      - DB_NAME=seeker_db
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./api:/usr/src/app
+      - /usr/src/app/node_modules
+    depends_on:
+      - db
+    # watch mode for local development
+    command: npm run start:dev
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: seeker_frontend
+    environment:
+      - VITE_API_URL=http://localhost:3000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/usr/src/app
+      - /usr/src/app/node_modules
+    depends_on:
+      - api
+    command: npm run dev -- --host 0.0.0.0
+
+volumes:
+  pgdata:
